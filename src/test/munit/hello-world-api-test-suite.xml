@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+    xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+    xmlns:http="http://www.mulesoft.org/schema/mule/http"
+    xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+    xmlns="http://www.mulesoft.org/schema/mule/core"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <munit:config name="hello-world-api-test-suite.xml" />
+
+    <munit:test name="getGreetingWithNameReturnsTransformedPayload" description="Should call backend and transform payload for provided name.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request" doc:name="Mock Agify API">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Call Agify API" />
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/json --- { name: 'alice', age: 34, count: 1200 }]" mediaType="application/json" />
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:attributes value="#[output application/java --- { queryParams: { name: 'alice' } }]" />
+            </munit:set-event>
+            <flow-ref name="get:\greeting:hello-world-api-config" />
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.greeting]" is="#[MunitTools::equalTo('Hello alice!')]" />
+            <munit-tools:assert-that expression="#[payload.predictedAge]" is="#[MunitTools::equalTo(34)]" />
+            <munit-tools:assert-that expression="#[payload.source]" is="#[MunitTools::equalTo('agify.io')]" />
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="getGreetingWithoutNameUsesDefaultName" description="Should default name to mule when query parameter is absent.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request" doc:name="Mock Agify API">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Call Agify API" />
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/json --- { name: 'mule', age: 41, count: 9000 }]" mediaType="application/json" />
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:attributes value="#[output application/java --- { queryParams: {} }]" />
+            </munit:set-event>
+            <flow-ref name="get:\greeting:hello-world-api-config" />
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.greeting]" is="#[MunitTools::equalTo('Hello mule!')]" />
+            <munit-tools:assert-that expression="#[payload.predictedAge]" is="#[MunitTools::equalTo(41)]" />
+            <munit-tools:assert-that expression="#[payload.confidenceCount]" is="#[MunitTools::equalTo(9000)]" />
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="getGreetingWithInvalidNameReturnsValidationError" description="Should return 400 and validation payload when name size is invalid.">
+        <munit:execution>
+            <munit:set-event>
+                <munit:attributes value="#[output application/java --- { queryParams: { name: 'a' } }]" />
+            </munit:set-event>
+            <flow-ref name="get:\greeting:hello-world-api-config" />
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo('400')]" />
+            <munit-tools:assert-that expression="#[payload.errorType]" is="#[MunitTools::equalTo('VALIDATION:INVALID_SIZE')]" />
+            <munit-tools:verify-call processor="http:request" times="0" />
+        </munit:validation>
+    </munit:test>
+
+</mule>
