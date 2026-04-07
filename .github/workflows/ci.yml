@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat/actions
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-test-package:
+    name: Build, Test, and Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Maven clean test
+        run: mvn -B -ntp clean test
+
+      - name: Run MUnit
+        run: mvn -B -ntp com.mulesoft.munit.tools:munit-maven-plugin:3.7.0:test
+
+      - name: Package deployable artifact
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mule-app-package
+          path: |
+            target/*.jar
+            target/*.zip
+          if-no-files-found: error

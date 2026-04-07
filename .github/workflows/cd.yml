@@ -1,0 +1,184 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_method:
+        description: Deployment method
+        required: true
+        type: choice
+        default: maven
+        options:
+          - maven
+          - cli
+      deployment_target:
+        description: Target runtime
+        required: true
+        type: choice
+        default: cloudhub
+        options:
+          - cloudhub
+          - cloudhub2
+          - rtf
+      app_name:
+        description: Mule application name
+        required: true
+        default: hello-world-app
+      environment_name:
+        description: Anypoint environment
+        required: true
+        default: Sandbox
+      region:
+        description: Region (CloudHub or CloudHub 2.0)
+        required: true
+        default: us-east-1
+      workers:
+        description: CloudHub workers
+        required: true
+        default: '1'
+      worker_type:
+        description: CloudHub worker type
+        required: true
+        default: MICRO
+      runtime_version:
+        description: Mule runtime version
+        required: true
+        default: 4.11.0
+      rtf_target_name:
+        description: Runtime Fabric target name (required for rtf)
+        required: false
+        default: ''
+      rtf_replicas:
+        description: Runtime Fabric replicas
+        required: true
+        default: '1'
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+      ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+      ANYPOINT_ORG_ID: ${{ secrets.ANYPOINT_ORG_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Validate required secrets
+        run: |
+          test -n "$ANYPOINT_CLIENT_ID"
+          test -n "$ANYPOINT_CLIENT_SECRET"
+          test -n "$ANYPOINT_ORG_ID"
+
+      - name: Authenticate to Anypoint (Maven deploy)
+        if: ${{ github.event.inputs.deploy_method == 'maven' }}
+        run: echo "Using connected app credentials for Mule Maven Plugin deployment"
+
+      - name: Deploy with Mule Maven Plugin
+        if: ${{ github.event.inputs.deploy_method == 'maven' }}
+        run: |
+          set -euo pipefail
+          TARGET="${{ github.event.inputs.deployment_target }}"
+
+          if [ "$TARGET" = "cloudhub" ]; then
+            mvn -B -ntp clean deploy -DmuleDeploy \
+              -Danypoint.platform.client_id="$ANYPOINT_CLIENT_ID" \
+              -Danypoint.platform.client_secret="$ANYPOINT_CLIENT_SECRET" \
+              -DbusinessGroupId="$ANYPOINT_ORG_ID" \
+              -Denvironment="${{ github.event.inputs.environment_name }}" \
+              -DapplicationName="${{ github.event.inputs.app_name }}" \
+              -Dregion="${{ github.event.inputs.region }}" \
+              -Dworkers="${{ github.event.inputs.workers }}" \
+              -DworkerType="${{ github.event.inputs.worker_type }}"
+          elif [ "$TARGET" = "cloudhub2" ]; then
+            mvn -B -ntp clean deploy -DmuleDeploy \
+              -Danypoint.platform.client_id="$ANYPOINT_CLIENT_ID" \
+              -Danypoint.platform.client_secret="$ANYPOINT_CLIENT_SECRET" \
+              -DbusinessGroupId="$ANYPOINT_ORG_ID" \
+              -Denvironment="${{ github.event.inputs.environment_name }}" \
+              -DapplicationName="${{ github.event.inputs.app_name }}" \
+              -Dtarget="${{ github.event.inputs.region }}" \
+              -DmuleVersion="${{ github.event.inputs.runtime_version }}"
+          elif [ "$TARGET" = "rtf" ]; then
+            if [ -z "${{ github.event.inputs.rtf_target_name }}" ]; then
+              echo "rtf_target_name input is required when deployment_target=rtf"
+              exit 1
+            fi
+
+            mvn -B -ntp clean deploy -DmuleDeploy \
+              -Danypoint.platform.client_id="$ANYPOINT_CLIENT_ID" \
+              -Danypoint.platform.client_secret="$ANYPOINT_CLIENT_SECRET" \
+              -DbusinessGroupId="$ANYPOINT_ORG_ID" \
+              -Denvironment="${{ github.event.inputs.environment_name }}" \
+              -DapplicationName="${{ github.event.inputs.app_name }}" \
+              -Dtarget="${{ github.event.inputs.rtf_target_name }}" \
+              -Dreplicas="${{ github.event.inputs.rtf_replicas }}" \
+              -DmuleVersion="${{ github.event.inputs.runtime_version }}"
+          else
+            echo "Unsupported deployment_target: $TARGET"
+            exit 1
+          fi
+
+      - name: Set up Node.js (CLI deploy)
+        if: ${{ github.event.inputs.deploy_method == 'cli' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Anypoint CLI
+        if: ${{ github.event.inputs.deploy_method == 'cli' }}
+        run: npm install -g anypoint-cli-v4
+
+      - name: Authenticate to Anypoint (CLI)
+        if: ${{ github.event.inputs.deploy_method == 'cli' }}
+        run: |
+          anypoint-cli-v4 conf client_id "$ANYPOINT_CLIENT_ID"
+          anypoint-cli-v4 conf client_secret "$ANYPOINT_CLIENT_SECRET"
+          anypoint-cli-v4 conf organization "$ANYPOINT_ORG_ID"
+          anypoint-cli-v4 conf environment "${{ github.event.inputs.environment_name }}"
+
+      - name: Build deployment artifact (CLI)
+        if: ${{ github.event.inputs.deploy_method == 'cli' }}
+        run: mvn -B -ntp -DskipTests clean package
+
+      - name: Deploy with Anypoint CLI (CloudHub)
+        if: ${{ github.event.inputs.deploy_method == 'cli' && github.event.inputs.deployment_target == 'cloudhub' }}
+        run: |
+          ARTIFACT="$(ls target/*.jar | head -n 1)"
+          anypoint-cli-v4 runtime-mgr cloudhub-application deploy \
+            "${{ github.event.inputs.app_name }}" "$ARTIFACT" \
+            --region "${{ github.event.inputs.region }}" \
+            --workers "${{ github.event.inputs.workers }}" \
+            --workerSize "${{ github.event.inputs.worker_type }}"
+
+      - name: Deploy with Anypoint CLI (CloudHub 2.0)
+        if: ${{ github.event.inputs.deploy_method == 'cli' && github.event.inputs.deployment_target == 'cloudhub2' }}
+        run: |
+          ARTIFACT="$(ls target/*.jar | head -n 1)"
+          anypoint-cli-v4 runtime-mgr application deploy \
+            "${{ github.event.inputs.app_name }}" "$ARTIFACT" \
+            --target "${{ github.event.inputs.region }}"
+
+      - name: Deploy with Anypoint CLI (Runtime Fabric)
+        if: ${{ github.event.inputs.deploy_method == 'cli' && github.event.inputs.deployment_target == 'rtf' }}
+        run: |
+          if [ -z "${{ github.event.inputs.rtf_target_name }}" ]; then
+            echo "rtf_target_name input is required when deployment_target=rtf"
+            exit 1
+          fi
+
+          ARTIFACT="$(ls target/*.jar | head -n 1)"
+          anypoint-cli-v4 runtime-mgr application deploy \
+            "${{ github.event.inputs.app_name }}" "$ARTIFACT" \
+            --target "${{ github.event.inputs.rtf_target_name }}"
