@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      ANYPOINT_EXCHANGE_USERNAME: ${{ secrets.ANYPOINT_EXCHANGE_USERNAME }}
+      ANYPOINT_EXCHANGE_PASSWORD: ${{ secrets.ANYPOINT_EXCHANGE_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -27,6 +30,14 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+          server-id: anypoint-exchange-v3
+          server-username: ANYPOINT_EXCHANGE_USERNAME
+          server-password: ANYPOINT_EXCHANGE_PASSWORD
+
+      - name: Validate Exchange credentials
+        run: |
+          test -n "$ANYPOINT_EXCHANGE_USERNAME"
+          test -n "$ANYPOINT_EXCHANGE_PASSWORD"
 
       - name: Maven clean test
         run: mvn -B -ntp clean test
