@@ -30,9 +30,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-          server-id: anypoint-exchange-v3
-          server-username: ANYPOINT_EXCHANGE_USERNAME
-          server-password: ANYPOINT_EXCHANGE_PASSWORD
 
       - name: Validate Exchange credentials
         run: |
@@ -40,13 +37,13 @@ jobs:
           test -n "$ANYPOINT_EXCHANGE_PASSWORD"
 
       - name: Maven clean test
-        run: mvn -B -ntp clean test
+        run: mvn -s .mvn/settings.xml -B -ntp clean test
 
       - name: Run MUnit
-        run: mvn -B -ntp com.mulesoft.munit.tools:munit-maven-plugin:3.7.0:test
+        run: mvn -s .mvn/settings.xml -B -ntp com.mulesoft.munit.tools:munit-maven-plugin:3.7.0:test
 
       - name: Package deployable artifact
-        run: mvn -B -ntp -DskipTests package
+        run: mvn -s .mvn/settings.xml -B -ntp -DskipTests package
 
       - name: Upload package
         uses: actions/upload-artifact@v4
